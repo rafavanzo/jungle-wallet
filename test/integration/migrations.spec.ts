@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
-import { openTestDatabase, type TestDatabase } from './helpers/database.js';
+import { openThrowawayTestDatabase, type TestDatabase } from './helpers/database.js';
 
 const SCHEMA_TABLES = [
   'inbox_messages',
@@ -13,13 +13,13 @@ const SCHEMA_FUNCTIONS = ['forbid_ledger_mutation', 'forbid_terminal_transaction
 
 let db: TestDatabase;
 
+// Banco vazio e descartável: a reversibilidade do schema é testada num estado
+// limpo, sem depender dos dados acumulados no banco de testes.
 beforeAll(async () => {
-  db = await openTestDatabase();
+  db = await openThrowawayTestDatabase();
 });
 
 afterAll(async () => {
-  // Garante o schema de volta mesmo se o teste falhar no meio.
-  await db.orm.migrator.up();
   await db.close();
 });
 
@@ -38,11 +38,11 @@ async function existingFunctions(): Promise<string[]> {
 }
 
 describe('migrations', () => {
-  it('down() remove tabelas e funções, e up() recria tudo', async () => {
+  it('down() de todas as migrations remove tabelas e funções, e up() recria tudo', async () => {
     expect(await existingTables()).toEqual(SCHEMA_TABLES);
     expect(await existingFunctions()).toEqual(SCHEMA_FUNCTIONS);
 
-    await db.orm.migrator.down();
+    await db.orm.migrator.down({ to: 0 });
 
     expect(await existingTables()).toEqual([]);
     expect(await existingFunctions()).toEqual([]);

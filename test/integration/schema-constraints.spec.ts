@@ -68,6 +68,7 @@ const processed = (overrides: Row = {}): Row => ({
   status: 'PROCESSED',
   processed_at: AT,
   resulting_balance: '90.00',
+  resulting_balance_currency: 'BRL',
   ...overrides,
 });
 
@@ -183,6 +184,35 @@ describe('constraints do schema (SQL direto, sem passar pelo domínio)', () => {
       });
     });
 
+    it('rejeição por CURRENCY_MISMATCH em USD numa wallet BRL é persistida', async () => {
+      const wallet = await insertWallet();
+
+      await insertTransaction(wallet, {
+        currency: 'USD',
+        status: 'REJECTED',
+        failure_code: 'CURRENCY_MISMATCH',
+        processed_at: AT,
+        resulting_balance: '100.00',
+        resulting_balance_currency: 'BRL',
+      });
+    });
+
+    it('saldo resultante numa moeda diferente da wallet falha pela FK composta', async () => {
+      const wallet = await insertWallet();
+
+      await expect(
+        insertTransaction(wallet, processed({ resulting_balance_currency: 'USD' })),
+      ).rejects.toMatchObject({ code: SqlState.ForeignKeyViolation });
+    });
+
+    it('saldo resultante sem moeda falha com check violation', async () => {
+      const wallet = await insertWallet();
+
+      await expect(
+        insertTransaction(wallet, processed({ resulting_balance_currency: null })),
+      ).rejects.toMatchObject({ code: SqlState.CheckViolation });
+    });
+
     it('BET com valor zero falha, LOSS com valor zero é aceito', async () => {
       const wallet = await insertWallet();
 
@@ -205,7 +235,7 @@ describe('constraints do schema (SQL direto, sem passar pelo domínio)', () => {
       const bet = await insertTransaction(wallet);
 
       await db.execute(
-        "UPDATE wager_transactions SET status = 'PROCESSED', processed_at = ?, resulting_balance = '90.00' WHERE id = ?",
+        "UPDATE wager_transactions SET status = 'PROCESSED', processed_at = ?, resulting_balance = '90.00', resulting_balance_currency = 'BRL' WHERE id = ?",
         [AT, bet.id],
       );
     });
@@ -224,6 +254,7 @@ describe('constraints do schema (SQL direto, sem passar pelo domínio)', () => {
           failure_code: 'REFERENCE_ALREADY_REVERSED',
           processed_at: AT,
           resulting_balance: '100.00',
+          resulting_balance_currency: 'BRL',
         }),
       );
 
