@@ -440,3 +440,91 @@ não. O mesmo mapa vale para todos os endpoints.
   da wallet quando a ordem importar.
 - **Limitação, alerta:** o sinal de problema prolongado é o outbox lag (idade da
   mensagem pendente mais antiga), que ainda não é exposto como métrica.
+
+### ADR-014: consumidor SQS e inbox
+
+- **Mesmo caso de uso do HTTP** (`SubmitWagerTransactionUseCase`); o comando
+  ganha `inbox` opcional. Papel `consumer`; `consumerName =
+  wager-transactions-consumer`.
+- **Inbox na mesma transação SQL:** `insertIfAbsent` é o primeiro passo, antes do
+  lock da wallet, e `processed_at` é gravado no fim. Inbox, saldo, ledger e
+  outbox são confirmados ou desfeitos juntos.
+- **Hash da inbox:** SHA-256 do corpo bruto da mensagem. `correlationId` e
+  `causationId` recebem a `messageId`.
+- **Duplicata:** devolve o replay pela idempotency key e o consumidor dá ack.
+  Uma `messageId` repetida com outro corpo gera aviso no log e é tratada como
+  duplicata: se a chave dela não tem transação, `DuplicateMessageError` e ack.
+- **Validação:** o envelope é validado (`type === WagerTransactionRequested`), e
+  `data` usa o mesmo schema Zod do HTTP, mais `idempotencyKey`.
+- **Recebimento:** long polling de 10 s, até 10 mensagens, processadas em
+  sequência (ordem FIFO). O ack (`DeleteMessage`) só acontece depois do commit.
+- **Classificação:**
+  - PROCESSED, REJECTED e PENDING_REFERENCE → ack;
+  - transitório ou erro desconhecido → sem ack, visibilidade `min(2^ApproximateReceiveCount, 60)` s;
+  - ao atingir `MAX_RECEIVE_COUNT` (padrão 5) → DLQ;
+  - `DomainError` ou `ApplicationError` (payload inválido, wallet inexistente, conflito de idempotência) → DLQ na hora.
+- **DLQ pela aplicação:** `SendMessage` com o mesmo `MessageGroupId` e os
+  atributos `failureCode` e `reason`, seguido de `DeleteMessage`. A
+  `RedrivePolicy` da fila continua como rede de segurança.
+- **Shutdown:** para de buscar (`AbortController` no long poll), espera a
+  mensagem em andamento por até 10 s e devolve as não concluídas com
+  `ChangeMessageVisibility(0)`.
+- **Cliente SQS próprio** com `requestTimeout` de 20 s: o long poll de 10 s não
+  cabe no timeout de 5 s do publisher.
+- **Limitação:** o abort do long poll só existe do lado do cliente. O servidor
+  ainda pode "entregar" uma mensagem à requisição abortada; ela volta depois do
+  visibility timeout, com um recebimento a mais na contagem.
+- **Limitação:** o caminho de shutdown (espera e devolução de visibilidade) não
+  tem teste automatizado.
+
+### ADR-015: worker de PENDING_REFERENCE
+
+- **Papel `pending`**, um ciclo por segundo e até 10 candidatos por ciclo.
+- **Candidatos buscados sem lock;** cada um é processado na própria transação,
+  com o lock da wallet primeiro (a mesma ordem do caso de uso, então sem
+  deadlock). A transação é recarregada e, se não está mais pendente ou ainda não
+  venceu, o worker pula.
+- **Lógica compartilhada:** `WagerTransactionProcessor` (rejeições de contexto,
+  referência, aplicação, gravação), usado pelo caso de uso e pelo worker. No
+  worker a gravação é um update com guarda de status (`PENDING_REFERENCE`).
+- **Esgotamento:** com 10 tentativas, o worker rejeita com `REFERENCE_NOT_FOUND`
+  e publica o evento `Rejected`. O evento `PendingReference` só é emitido na
+  primeira vez.
+- **Dois workers no mesmo candidato** se serializam no lock da wallet; o segundo
+  vê o status mudado e pula.
+- **Vencimento pelo `Clock` da aplicação** (parâmetro da consulta), não pelo
+  `now()` do banco, para o relógio ser controlável nos testes.
+- **Limitação:** o `correlationId` original não é persistido; os eventos do
+  worker usam o id da transação como correlação.
+
+### ADR-016: health, reconciliação, logs e métricas
+
+- **`GET /health/live`** não depende de nada. O app sobe sem Postgres (conferido
+  manualmente: live 200, ready 503).
+- **`GET /health/ready`** checa Postgres (`SELECT 1`) e SQS (`GetQueueUrl` da
+  fila principal), 1 s cada. Responde 200 ou 503, com o status de cada
+  dependência. Sem guard de autenticação.
+- **Reconciliação** (`POST /wallets/:id/reconciliation`) numa transação
+  REPEATABLE READ READ ONLY. Soma em NUMERIC no banco; valores em texto, sem
+  passar por número.
+- **Divergência nunca é corrigida:** gera log de erro estruturado, incrementa o
+  contador e devolve `consistent: false`. Responde 200 nos dois casos e 404 se a
+  wallet não existe.
+- **Logs em JSON** com o `ConsoleLogger` do Nest (`json: true`), não pino. Logam
+  ids e resultado, sem o payload financeiro completo:
+  - resultado do caso de uso no HTTP;
+  - ack, retry e DLQ no consumidor;
+  - falhas do publisher;
+  - divergências.
+- **Métricas Prometheus** em `GET /metrics`, com registry por instância:
+  - transações por status e kind;
+  - duplicatas;
+  - lock timeouts;
+  - histograma de latência;
+  - divergências;
+  - retries e mensagens na DLQ do consumidor;
+  - `outbox_lag_seconds`, calculado no scrape.
+- **Limitação:** o `correlationId` não entra automaticamente em toda linha de log
+  (falta AsyncLocalStorage); ele é passado nos logs principais.
+- **Limitação:** `/metrics` não tem autenticação. O outbox lag vira `NaN` com o
+  banco fora do ar.
