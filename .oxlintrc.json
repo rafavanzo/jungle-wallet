@@ -6,5 +6,15 @@
   },
   "env": {
     "node": true
-  }
+  },
+  "overrides": [
+    {
+      // Os tipos do Bun declaram os matchers de `expect(...).rejects` como síncronos,
+      // mas em runtime eles retornam Promise e o `await` é obrigatório.
+      "files": ["test/**/*.ts"],
+      "rules": {
+        "typescript/await-thenable": "off"
+      }
+    }
+  ]
 }
