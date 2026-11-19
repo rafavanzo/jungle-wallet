@@ -245,3 +245,33 @@ A seção 7 pede que interpretações adicionais sejam documentadas.
   inicial entra no `open`, sem incrementar a `version`.
 - **Concorrência não é papel do agregado.** Ele garante a consistência de uma
   operação; o lock no banco garante a serialização entre processos.
+
+### ADR-008: invariantes no schema, com migration escrita à mão
+
+- **A migration é a fonte da verdade do schema**, não as entidades. Ela é
+  escrita em SQL (`this.addSql`), porque trigger, índice único parcial e CHECK
+  composto não saem de um gerador. O `down()` desfaz tudo.
+- **Migrations sem o CLI do MikroORM.** `src/infra/database/migrate.ts` chama o
+  migrator direto (`bun run db:migrate` / `db:rollback`). O Bun executa
+  TypeScript, então as migrations são carregadas da pasta sem nenhum loader.
+  Cada uma roda numa transação, e o lote é tudo-ou-nada.
+- **O que o banco garante, mesmo contornando o domínio:**
+  - saldo nunca negativo (`CHECK balance >= 0`);
+  - ledger append-only (triggers em UPDATE, DELETE e TRUNCATE) e com a
+    aritmética conferida (`CHECK` igual ao `isBalanced()`);
+  - um lançamento por transação (`UNIQUE (transaction_id, wallet_id)`);
+  - moeda e wallet consistentes por FKs compostas: transação e lançamento na
+    moeda da wallet, lançamento na mesma wallet da transação, referência
+    resolvida na mesma wallet;
+  - uma única reversão por transação (índice único parcial), e uma transação
+    processada com referência sempre tem o id interno resolvido, senão o `NULL`
+    escaparia do índice;
+  - idempotência por `(provider_id, idempotency_key)`: cada provedor tem o
+    próprio espaço de chaves, e um não recebe o replay do outro;
+  - estados terminais imutáveis (trigger) e coerentes (`failure_code` só em
+    rejeição/falha, `processed_at` só em estado terminal).
+- **Banco de teste separado** (`jungle_wallet_test`), porque o teste de
+  reversibilidade roda o `down()`. Os testes não apagam dados (o ledger não
+  permite); cada teste usa ids novos.
+- **Postgres exposto na porta 5433** do host, para não colidir com um
+  PostgreSQL instalado localmente na 5432.
