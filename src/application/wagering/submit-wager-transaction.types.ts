@@ -9,6 +9,15 @@ export interface SubmitWagerTransactionCommand extends WagerPayload {
   correlationId: string;
   /** messageId no SQS; ausente no HTTP. */
   causationId?: string;
+  /** Só no SQS: registro na inbox, primeiro passo da mesma transação SQL. */
+  inbox?: InboxReceipt;
+}
+
+export interface InboxReceipt {
+  consumerName: string;
+  messageId: string;
+  /** SHA-256 do corpo bruto da mensagem. */
+  payloadHash: string;
 }
 
 /** Status que um resultado pode ter: a transação nunca fica PENDING depois do caso de uso. */
@@ -26,4 +35,6 @@ export interface SubmitWagerTransactionResult {
   balance?: MoneyProps;
   failureCode?: FailureCode;
   idempotentReplay: boolean;
+  /** A messageId já estava na inbox; `payloadMismatch` se o corpo era outro. */
+  duplicateMessage?: { payloadMismatch: boolean };
 }

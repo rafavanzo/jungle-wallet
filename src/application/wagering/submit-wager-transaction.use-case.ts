@@ -1,20 +1,12 @@
-import type { EventContext } from '../../domain/messaging/integration-event.js';
-import { OutboxMessage } from '../../domain/messaging/outbox-message.js';
-import { MoneyOverflowError } from '../../domain/shared/domain-error.js';
+import { InboxMessage } from '../../domain/messaging/inbox-message.js';
 import { Money } from '../../domain/shared/money.js';
-import { WagerTransactionPendingReference } from '../../domain/wagering/events/wager-transaction-pending-reference.js';
-import { WagerTransactionProcessed } from '../../domain/wagering/events/wager-transaction-processed.js';
-import { WagerTransactionRejected } from '../../domain/wagering/events/wager-transaction-rejected.js';
-import { WalletBalanceChanged } from '../../domain/wagering/events/wallet-balance-changed.js';
-import { FailureCode } from '../../domain/wagering/failure-code.js';
 import { WagerTransaction } from '../../domain/wagering/wager-transaction.js';
-import { WagerTransactionKind } from '../../domain/wagering/wager-transaction-kind.js';
-import { WagerTransactionStatus } from '../../domain/wagering/wager-transaction-status.js';
-import { LedgerDirection } from '../../domain/wallet/ledger-direction.js';
-import type { Wallet } from '../../domain/wallet/wallet.js';
-import type { WalletLedgerEntry } from '../../domain/wallet/wallet-ledger-entry.js';
-import { InsufficientFundsError } from '../../domain/wallet/wallet-errors.js';
-import { IdempotencyConflictError, WalletNotFoundError } from '../errors/application-errors.js';
+import type { WagerTransactionKind } from '../../domain/wagering/wager-transaction-kind.js';
+import {
+  DuplicateMessageError,
+  IdempotencyConflictError,
+  WalletNotFoundError,
+} from '../errors/application-errors.js';
 import type { WageringMetrics } from '../metrics/wagering-metrics.js';
 import type { Clock } from '../ports/clock.js';
 import type { IdGenerator } from '../ports/id-generator.js';
@@ -26,10 +18,11 @@ import {
 import type { TransactionalRepositories, UnitOfWork } from '../ports/unit-of-work.js';
 import { computePayloadHash } from './payload-hash.js';
 import type {
-  SubmitWagerStatus,
+  InboxReceipt,
   SubmitWagerTransactionCommand,
   SubmitWagerTransactionResult,
 } from './submit-wager-transaction.types.js';
+import { toResult, WagerTransactionProcessor } from './wager-transaction-processor.js';
 
 /**
  * Violações de unicidade que significam "outra execução commitou primeiro"
@@ -41,29 +34,24 @@ const RETRYABLE_CONSTRAINTS: ReadonlySet<string> = new Set([
   UniqueConstraint.SingleReversal,
 ]);
 
-/** Estado de uma execução, para não espalhar parâmetros pelos passos. */
-interface Execution {
-  repositories: TransactionalRepositories;
-  transaction: WagerTransaction;
-  wallet: Wallet;
-  now: Date;
-  eventContext: () => EventContext;
-}
-
 /**
  * Submete uma operação de aposta. Mesmo caso de uso para HTTP e SQS.
  *
- * Fluxo (F1 a F7): lock da wallet → idempotência → rejeições de contexto →
- * referência → aplicação no saldo → gravação na ordem transação, wallet,
- * lançamento, outbox. Tudo numa transação SQL.
+ * Fluxo: (inbox, só no SQS) → lock da wallet → idempotência → decisão e
+ * gravação (WagerTransactionProcessor) → (inbox processada). Tudo numa
+ * transação SQL.
  */
 export class SubmitWagerTransactionUseCase {
+  private readonly processor: WagerTransactionProcessor;
+
   constructor(
     private readonly uow: UnitOfWork,
     private readonly clock: Clock,
     private readonly ids: IdGenerator,
     private readonly metrics: WageringMetrics,
-  ) {}
+  ) {
+    this.processor = new WagerTransactionProcessor(ids);
+  }
 
   async execute(command: SubmitWagerTransactionCommand): Promise<SubmitWagerTransactionResult> {
     const startedAt = this.clock.now();
@@ -113,6 +101,32 @@ export class SubmitWagerTransactionUseCase {
   ): Promise<SubmitWagerTransactionResult> {
     const now = this.clock.now();
 
+    // Primeiro passo no SQS: a inbox deduplica por (consumerName, messageId).
+    if (command.inbox) {
+      const duplicate = await this.registerInbox(repositories, command.inbox, now);
+      if (duplicate) {
+        return this.replayDuplicateMessage(repositories, transaction, duplicate, command.inbox);
+      }
+    }
+
+    const result = await this.processLocked(repositories, transaction, command, now);
+
+    if (command.inbox) {
+      await repositories.inbox.markProcessed(
+        command.inbox.consumerName,
+        command.inbox.messageId,
+        now,
+      );
+    }
+    return result;
+  }
+
+  private async processLocked(
+    repositories: TransactionalRepositories,
+    transaction: WagerTransaction,
+    command: SubmitWagerTransactionCommand,
+    now: Date,
+  ): Promise<SubmitWagerTransactionResult> {
     // A partir daqui nenhuma outra execução mexe nesta wallet até o commit (F1).
     const wallet = await repositories.wallets.lockById(command.walletId);
     if (!wallet) {
@@ -124,49 +138,63 @@ export class SubmitWagerTransactionUseCase {
       return replay;
     }
 
-    const execution: Execution = {
+    return this.processor.process({
       repositories,
       transaction,
       wallet,
       now,
+      isNew: true,
+      save: (saved) => repositories.transactions.insert(saved),
       eventContext: () => ({
         eventId: this.ids.next(),
         correlationId: command.correlationId,
         ...(command.causationId === undefined ? {} : { causationId: command.causationId }),
         occurredAt: now,
       }),
-    };
+    });
+  }
 
-    if (wallet.playerId !== transaction.playerId) {
-      return this.reject(execution, FailureCode.WalletPlayerMismatch);
+  /** `undefined` se inseriu; senão, a mensagem já registrada. */
+  private async registerInbox(
+    { inbox }: TransactionalRepositories,
+    receipt: InboxReceipt,
+    now: Date,
+  ): Promise<InboxMessage | undefined> {
+    const inserted = await inbox.insertIfAbsent(
+      InboxMessage.receive({ ...receipt, receivedAt: now }),
+    );
+    if (inserted) {
+      return undefined;
     }
-    if (wallet.currency !== transaction.money.currency) {
-      return this.reject(execution, FailureCode.CurrencyMismatch);
+    const existing = await inbox.findByKey(receipt.consumerName, receipt.messageId);
+    if (!existing) {
+      throw new Error(`Mensagem ${receipt.messageId} duplicada sem registro na inbox`);
     }
+    return existing;
+  }
 
-    let reference: WagerTransaction | undefined;
-    if (transaction.referenceExternalTransactionId !== undefined) {
-      reference = await repositories.transactions.findByExternalId(
-        transaction.providerId,
-        transaction.referenceExternalTransactionId,
-      );
-      // Ausente ou ainda pendente conta como ausente.
-      if (!reference || !reference.isTerminal()) {
-        return this.markPendingReference(execution);
+  /** Mensagem já processada: devolve o resultado original pela idempotency key. */
+  private async replayDuplicateMessage(
+    { transactions }: TransactionalRepositories,
+    transaction: WagerTransaction,
+    duplicate: InboxMessage,
+    receipt: InboxReceipt,
+  ): Promise<SubmitWagerTransactionResult> {
+    const original = await transactions.findByIdempotencyKey(
+      transaction.providerId,
+      transaction.idempotencyKey,
+    );
+    const payloadMismatch = duplicate.payloadHash !== receipt.payloadHash;
+    if (!original) {
+      if (payloadMismatch) {
+        throw new DuplicateMessageError(
+          `Mensagem ${duplicate.messageId} repetida com outro corpo, sem transação para repetir`,
+        );
       }
-      const failure = transaction.checkReference(reference);
-      if (failure) {
-        return this.reject(execution, failure);
-      }
-      if (
-        transaction.requiresReference() &&
-        (await repositories.transactions.hasProcessedReversalOf(reference.id))
-      ) {
-        return this.reject(execution, FailureCode.ReferenceAlreadyReversed);
-      }
+      // A inbox e a transação são gravadas juntas; uma sem a outra é anomalia.
+      throw new Error(`Mensagem ${duplicate.messageId} na inbox sem transação correspondente`);
     }
-
-    return this.apply(execution, reference);
+    return { ...toResult(original, true), duplicateMessage: { payloadMismatch } };
   }
 
   /** Passo 5: replay com o resultado original, ou conflito. */
@@ -199,89 +227,6 @@ export class SubmitWagerTransactionUseCase {
       );
     }
     return undefined;
-  }
-
-  /** Passo 9: aplica no saldo (se o kind afeta saldo) e grava na ordem do passo 10. */
-  private async apply(
-    execution: Execution,
-    reference: WagerTransaction | undefined,
-  ): Promise<SubmitWagerTransactionResult> {
-    const { repositories, transaction, wallet, now } = execution;
-    const previousVersion = wallet.version;
-    let entry: WalletLedgerEntry | undefined;
-
-    if (transaction.affectsBalance()) {
-      const movement = {
-        money: transaction.money,
-        transactionId: transaction.id,
-        entryId: this.ids.next(),
-        at: now,
-      };
-      try {
-        entry =
-          transaction.ledgerDirectionFor(reference) === LedgerDirection.Debit
-            ? wallet.debit(movement)
-            : wallet.credit(movement);
-      } catch (error) {
-        if (error instanceof InsufficientFundsError) {
-          // Só BET e ROLLBACK debitam; a reversão sem saldo tem código próprio (regra 9).
-          return this.reject(
-            execution,
-            transaction.kind === WagerTransactionKind.Rollback
-              ? FailureCode.ReversalInsufficientFunds
-              : FailureCode.InsufficientFunds,
-          );
-        }
-        if (error instanceof MoneyOverflowError) {
-          return this.reject(execution, FailureCode.AmountOutOfRange);
-        }
-        throw error;
-      }
-    }
-
-    transaction.markProcessed(reference?.id, wallet.balance, now);
-
-    await repositories.transactions.insert(transaction);
-    if (entry) {
-      await repositories.wallets.update(wallet, previousVersion);
-      await repositories.ledger.insert(entry);
-    }
-    await repositories.outbox.insert(
-      OutboxMessage.enqueue(WagerTransactionProcessed.from(transaction, execution.eventContext())),
-    );
-    if (entry) {
-      await repositories.outbox.insert(
-        OutboxMessage.enqueue(WalletBalanceChanged.from(wallet, entry, execution.eventContext())),
-      );
-    }
-
-    return toResult(transaction, false);
-  }
-
-  private async reject(
-    { repositories, transaction, wallet, now, eventContext }: Execution,
-    code: FailureCode,
-  ): Promise<SubmitWagerTransactionResult> {
-    transaction.reject(code, wallet.balance, now);
-    await repositories.transactions.insert(transaction);
-    await repositories.outbox.insert(
-      OutboxMessage.enqueue(WagerTransactionRejected.from(transaction, eventContext())),
-    );
-    return toResult(transaction, false);
-  }
-
-  private async markPendingReference({
-    repositories,
-    transaction,
-    now,
-    eventContext,
-  }: Execution): Promise<SubmitWagerTransactionResult> {
-    transaction.markPendingReference(now);
-    await repositories.transactions.insert(transaction);
-    await repositories.outbox.insert(
-      OutboxMessage.enqueue(WagerTransactionPendingReference.from(transaction, eventContext())),
-    );
-    return toResult(transaction, false);
   }
 
   /**
@@ -328,23 +273,4 @@ function isRetryableUniqueViolation(error: unknown): boolean {
     error.constraint !== undefined &&
     RETRYABLE_CONSTRAINTS.has(error.constraint)
   );
-}
-
-function toResult(
-  transaction: WagerTransaction,
-  idempotentReplay: boolean,
-): SubmitWagerTransactionResult {
-  if (transaction.status === WagerTransactionStatus.Pending) {
-    throw new Error(`Transação ${transaction.id} persistida em PENDING`);
-  }
-  const status: SubmitWagerStatus = transaction.status;
-  const { resultingBalance, failureCode } = transaction;
-
-  return {
-    transactionId: transaction.id,
-    status,
-    ...(resultingBalance === undefined ? {} : { balance: resultingBalance.toJSON() }),
-    ...(failureCode === undefined ? {} : { failureCode }),
-    idempotentReplay,
-  };
 }

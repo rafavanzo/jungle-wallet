@@ -36,6 +36,8 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   // 409: conflito. Não reenviar com a mesma chave.
   WALLET_ALREADY_EXISTS: 409,
   IDEMPOTENCY_KEY_REUSED: 409,
+  // Só acontece no consumidor SQS.
+  DUPLICATE_MESSAGE: 409,
   EXTERNAL_TRANSACTION_ID_CONFLICT: 409,
 
   // 413: corpo grande demais.

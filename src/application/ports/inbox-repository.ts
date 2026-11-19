@@ -8,4 +8,6 @@ export interface InboxRepository {
    */
   insertIfAbsent(message: InboxMessage): Promise<boolean>;
   findByKey(consumerName: string, messageId: string): Promise<InboxMessage | undefined>;
+  /** Grava processed_at no fim da mesma transação que processou a mensagem. */
+  markProcessed(consumerName: string, messageId: string, at: Date): Promise<void>;
 }

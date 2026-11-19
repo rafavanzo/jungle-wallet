@@ -15,14 +15,17 @@ export interface SqsSettings {
  * Sem retry no SDK (maxAttempts 1): quem repete é a outbox, com backoff e
  * registro em last_error. Um retry escondido no SDK só alongaria a transação.
  */
-export function createSqsClient({ endpoint, region }: SqsSettings): SQSClient {
+export function createSqsClient(
+  { endpoint, region }: SqsSettings,
+  requestTimeoutMs: number = SQS_REQUEST_TIMEOUT_MS,
+): SQSClient {
   return new SQSClient({
     region,
     ...(endpoint ? { endpoint } : {}),
     maxAttempts: 1,
     requestHandler: {
       connectionTimeout: SQS_CONNECTION_TIMEOUT_MS,
-      requestTimeout: SQS_REQUEST_TIMEOUT_MS,
+      requestTimeout: requestTimeoutMs,
     },
   });
 }

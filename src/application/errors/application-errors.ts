@@ -7,6 +7,7 @@ export type ApplicationErrorCode =
   | 'INVALID_PLAYER_ID'
   | 'TRANSACTION_NOT_FOUND'
   | 'INVALID_CURSOR'
+  | 'DUPLICATE_MESSAGE'
   | IdempotencyConflictCode;
 
 /**
@@ -43,6 +44,14 @@ export class TransactionNotFoundError extends ApplicationError {
 /** Cursor de paginação que não decodifica ou está num formato desconhecido. */
 export class InvalidCursorError extends ApplicationError {
   override readonly code = 'INVALID_CURSOR';
+}
+
+/**
+ * messageId já registrada na inbox, com um corpo cuja idempotency key não tem
+ * transação: não há resultado para repetir. O consumidor dá ack (duplicata).
+ */
+export class DuplicateMessageError extends ApplicationError {
+  override readonly code = 'DUPLICATE_MESSAGE';
 }
 
 /**

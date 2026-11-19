@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql';
 
 import type { InboxRepository } from '../../../application/ports/inbox-repository.js';
+import { StaleUpdateError } from '../../../application/ports/persistence-errors.js';
 import type { InboxMessage } from '../../../domain/messaging/inbox-message.js';
 import { InboxMessageMapper } from '../mappers/inbox-message.mapper.js';
 import { InboxMessageRecord } from '../records/inbox-message.record.js';
@@ -38,5 +39,16 @@ export class MikroOrmInboxRepository implements InboxRepository {
       { disableIdentityMap: true },
     );
     return record ? InboxMessageMapper.toDomain(record) : undefined;
+  }
+
+  async markProcessed(consumerName: string, messageId: string, at: Date): Promise<void> {
+    const affected = await this.em.nativeUpdate(
+      InboxMessageRecord,
+      { consumerName, messageId, processedAt: null },
+      { processedAt: at },
+    );
+    if (affected === 0) {
+      throw new StaleUpdateError(`Mensagem ${messageId} da inbox ausente ou já processada`);
+    }
   }
 }
