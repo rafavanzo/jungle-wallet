@@ -15,10 +15,20 @@ interface LedgerSummary {
   opening_entries: string;
 }
 
+interface ChainLink {
+  id: string;
+  balance_before: string;
+  balance_after: string;
+}
+
 /**
- * Invariante final de todos os testes de caso de uso (seção 13): o saldo da
- * wallet é igual ao saldo reconstruído pelo ledger, e a version é 1 mais o
- * número de movimentos depois da abertura. Conferido direto em SQL.
+ * Invariante final de todos os testes de caso de uso (seção 13), conferido
+ * direto em SQL:
+ * - o saldo da wallet é igual ao saldo reconstruído pelo ledger;
+ * - a version é 1 mais o número de movimentos depois da abertura;
+ * - os lançamentos, em ordem de id, formam uma corrente: o primeiro parte de
+ *   0.00, cada balance_before é o balance_after do anterior e o último
+ *   balance_after é o saldo da wallet.
  */
 export async function assertLedgerConsistent(db: TestDatabase, walletId: string): Promise<void> {
   const [summary] = await db.execute<LedgerSummary[]>(
@@ -39,6 +49,27 @@ export async function assertLedgerConsistent(db: TestDatabase, walletId: string)
   expect(summary!.ledger_sum).toBe(summary!.balance);
   const movements = Number(summary!.entries) - Number(summary!.opening_entries);
   expect(summary!.version).toBe(1 + movements);
+
+  const chain = await db.execute<ChainLink[]>(
+    `SELECT id, balance_before::text AS balance_before, balance_after::text AS balance_after
+       FROM wallet_ledger_entries
+      WHERE wallet_id = ?
+      ORDER BY id`,
+    [walletId],
+  );
+  // Junta todas as quebras antes de comparar: a mensagem de falha mostra a corrente inteira.
+  const breaks: string[] = [];
+  let expectedBefore = '0.00';
+  for (const link of chain) {
+    if (link.balance_before !== expectedBefore) {
+      breaks.push(`${link.id}: balance_before ${link.balance_before}, esperado ${expectedBefore}`);
+    }
+    expectedBefore = link.balance_after;
+  }
+  if (expectedBefore !== summary!.balance) {
+    breaks.push(`último balance_after ${expectedBefore}, saldo da wallet ${summary!.balance}`);
+  }
+  expect(breaks).toEqual([]);
 }
 
 /** Tipos dos eventos na outbox ligados a uma transação, na ordem de gravação. */
