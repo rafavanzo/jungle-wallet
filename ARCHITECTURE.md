@@ -352,3 +352,50 @@ portas vira replay, não conflito.
   tem moeda própria, sempre a da wallet (FK composta).
 - **Invariante dos testes:** saldo da wallet = soma dos lançamentos, e
   `version = 1 + movimentos depois da abertura`.
+
+### ADR-012: API HTTP e mapeamento de status
+
+O status HTTP sozinho responde "posso reenviar?": com 503 sim, com todo o resto
+não. O mesmo mapa vale para todos os endpoints.
+
+| Status | Situação | Códigos | O que o provedor faz |
+| ------ | -------- | ------- | -------------------- |
+| 201 | criado ou processado agora | wallet criada; transação nova `PROCESSED` | nada |
+| 200 | replay de transação processada; consultas | `idempotentReplay: true` | nada |
+| 202 | aceito, processamento pendente | `PENDING_REFERENCE` (novo ou replay) | aguarda, consulta pelo GET |
+| 400 | payload inválido | `VALIDATION_ERROR`, `INVALID_MONEY`, `INVALID_AMOUNT`, `MISSING_REFERENCE`, `UNEXPECTED_REFERENCE`, `SELF_REFERENCE`, `UNSUPPORTED_TRANSACTION_KIND`, `RESERVED_PROVIDER_ID`, `INVALID_PLAYER_ID`, `MISSING_IDEMPOTENCY_KEY`, `INVALID_CURSOR` | corrige e não reenvia igual |
+| 404 | recurso inexistente | `WALLET_NOT_FOUND`, `TRANSACTION_NOT_FOUND`, `ROUTE_NOT_FOUND` | corrige o id |
+| 409 | conflito | `WALLET_ALREADY_EXISTS`, `IDEMPOTENCY_KEY_REUSED`, `EXTERNAL_TRANSACTION_ID_CONFLICT` | não reenvia com a mesma chave |
+| 413 | corpo grande demais | `PAYLOAD_TOO_LARGE` | reduz o payload |
+| 422 | rejeição de negócio persistida, ou `FAILED` | todos os `failureCode` | definitivo; não reenvia |
+| 503 | falha transitória de infraestrutura | `TRANSIENT_INFRASTRUCTURE` (+ `Retry-After`) | reenvia com a mesma chave (idempotente) |
+| 500 | bug | `INTERNAL_ERROR` e erros de programação do domínio | investigação |
+
+- **422 e não 200 para rejeição:** um provedor que só olha o status não pode
+  achar que a aposta passou. O corpo traz `status`, `failureCode` e `balance`.
+  O replay de uma rejeição também é 422 (regra 7: o resultado original).
+- **`FAILED` também é 422:** é um resultado definitivo. O corpo traz
+  `status: "FAILED"`, o que o diferencia de uma rejeição de negócio.
+- **Exaustividade em compilação:** `DomainError` e `ApplicationError` tipam o
+  `code` com uma união de literais, e o mapa é um `Record<ErrorCode, number>`.
+  Um código novo sem status não compila.
+- **Corpo de erro:** `{ error: { code, message }, correlationId }`. Um 500 só
+  diz "Erro interno"; stack e SQL vão para o log.
+- **Validação com Zod** (`src/contracts/`), o mesmo schema para HTTP e SQS, sem
+  conversão de tipos: um `amount` numérico é 400. **Campos desconhecidos são
+  ignorados** (tolerant reader): um campo extra não quebra o provedor, e como o
+  `payloadHash` só usa campos conhecidos, a idempotência não muda.
+- **Ids de rota validados como UUID** antes do banco, para um erro do cliente
+  não virar um 500 (`22P02`).
+- **Cursor do ledger:** `base64url({ v: 1, afterId })`, opaco e estável (UUID v7
+  ordenável, ledger só com inserts). Busca `limit + 1` para saber se há próxima
+  página, sem COUNT.
+- **Autenticação:** `ProviderAuthGuard` no-op como ponto de extensão (OIDC com
+  Keycloak/Zitadel e conferência do `providerId`); não vale para os health checks.
+- **`X-Correlation-Id` em toda resposta:** o middleware roda antes do parser de
+  JSON, então até um JSON malformado ou uma rota inexistente devolvem o id. Um
+  valor inválido é substituído por um gerado, com aviso no log: um header de
+  rastreamento não impede uma aposta válida (tolerant reader).
+- **Formatos diferentes de propósito:** nas respostas HTTP, campo ausente vem
+  como `null` (formato estável para quem consome); nos eventos ele é omitido,
+  para o envelope sobreviver a `JSON.stringify`/`JSON.parse` sem mudar.
