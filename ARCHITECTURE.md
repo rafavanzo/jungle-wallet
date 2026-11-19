@@ -260,9 +260,10 @@ A seção 7 pede que interpretações adicionais sejam documentadas.
   - ledger append-only (triggers em UPDATE, DELETE e TRUNCATE) e com a
     aritmética conferida (`CHECK` igual ao `isBalanced()`);
   - um lançamento por transação (`UNIQUE (transaction_id, wallet_id)`);
-  - moeda e wallet consistentes por FKs compostas: transação e lançamento na
-    moeda da wallet, lançamento na mesma wallet da transação, referência
-    resolvida na mesma wallet;
+  - moeda e wallet consistentes por FKs compostas: lançamento e saldo
+    resultante da transação na moeda da wallet, lançamento na mesma wallet da
+    transação, referência resolvida na mesma wallet (uma transação rejeitada por
+    CURRENCY_MISMATCH pode estar em outra moeda; ver ADR-011);
   - uma única reversão por transação (índice único parcial), e uma transação
     processada com referência sempre tem o id interno resolvido, senão o `NULL`
     escaparia do índice;
@@ -330,3 +331,24 @@ A seção 7 pede que interpretações adicionais sejam documentadas.
 
 Os campos são os mesmos no HTTP e no SQS: a mesma operação enviada pelas duas
 portas vira replay, não conflito.
+
+### ADR-011: casos de uso OpenWallet e SubmitWagerTransaction
+
+- **Resultado explícito, não exceção.** Rejeição de negócio é um resultado
+  persistido (`status`, `failureCode`, `balance`). Exceções só para o que impede
+  o processamento: payload inválido, wallet inexistente, conflito de
+  idempotência e falha transitória. O caso de uso não conhece HTTP nem SQS.
+- **Lock antes da idempotência.** Requisições iguais fazem fila na linha da
+  wallet; a primeira processa, as seguintes veem o commit e viram replay. Em
+  READ COMMITTED cada comando vê o que já foi commitado depois do lock.
+- **Nova tentativa única (F5)** quando uma violação de unicidade indica que
+  outra execução commitou primeiro (idempotência, id externo, reversão única).
+  Uma segunda violação seguida é tratada como anomalia (500).
+- **Replay de transação pendente** devolve o status atual, sem saldo: para o
+  provedor, o útil é saber o estado de agora.
+- **CURRENCY_MISMATCH é persistido.** Para isso a transação tem FK simples para
+  a wallet (migration `rejected_currency_mismatch`); o ledger continua com a FK
+  composta, então nenhum lançamento em outra moeda é possível. O saldo resultante
+  tem moeda própria, sempre a da wallet (FK composta).
+- **Invariante dos testes:** saldo da wallet = soma dos lançamentos, e
+  `version = 1 + movimentos depois da abertura`.
