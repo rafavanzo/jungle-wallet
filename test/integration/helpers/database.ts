@@ -15,6 +15,7 @@ export const SqlState = {
 
 export interface TestDatabase {
   orm: MikroORM;
+  url: string;
   execute<T = Record<string, unknown>[]>(sql: string, params?: readonly unknown[]): Promise<T>;
   close(): Promise<void>;
 }
@@ -27,7 +28,7 @@ export async function openTestDatabase(): Promise<TestDatabase> {
   const url = testDatabaseUrl();
   const orm = await MikroORM.init(buildOrmConfig(url));
   await orm.migrator.up();
-  return wrap(orm, () => orm.close(true));
+  return wrap(orm, url, () => orm.close(true));
 }
 
 /**
@@ -48,7 +49,7 @@ export async function openThrowawayTestDatabase(): Promise<TestDatabase> {
   const orm = await MikroORM.init(buildOrmConfig(url.toString()));
   await orm.migrator.up();
 
-  return wrap(orm, async () => {
+  return wrap(orm, url.toString(), async () => {
     await orm.close(true);
     await admin.em.getConnection().execute(`DROP DATABASE ${databaseName} WITH (FORCE)`);
     await admin.close(true);
@@ -64,10 +65,11 @@ function testDatabaseUrl(): string {
   return url;
 }
 
-function wrap(orm: MikroORM, close: () => Promise<void>): TestDatabase {
+function wrap(orm: MikroORM, url: string, close: () => Promise<void>): TestDatabase {
   const connection = orm.em.getConnection();
   return {
     orm,
+    url,
     execute: <T>(sql: string, params: readonly unknown[] = []) =>
       connection.execute(sql, params) as Promise<T>,
     close,
