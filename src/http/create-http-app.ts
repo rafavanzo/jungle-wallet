@@ -1,4 +1,4 @@
-import type { NestApplicationOptions } from '@nestjs/common';
+import { ConsoleLogger, type NestApplicationOptions } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 
@@ -19,6 +19,8 @@ export async function createHttpApp(
   options: NestApplicationOptions = {},
 ): Promise<NestExpressApplication> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    // Logs em JSON, uma linha por evento (seção 12). Os testes passam logger: false.
+    logger: new ConsoleLogger({ json: true }),
     ...options,
     bodyParser: false,
   });

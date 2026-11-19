@@ -1,10 +1,6 @@
 import { Module } from '@nestjs/common';
 
-import {
-  NoopWageringMetrics,
-  WAGERING_METRICS,
-  type WageringMetrics,
-} from '../application/metrics/wagering-metrics.js';
+import { WAGERING_METRICS, type WageringMetrics } from '../application/metrics/wagering-metrics.js';
 import { CLOCK, type Clock } from '../application/ports/clock.js';
 import { ID_GENERATOR, type IdGenerator } from '../application/ports/id-generator.js';
 import { UNIT_OF_WORK, type UnitOfWork } from '../application/ports/unit-of-work.js';
@@ -16,6 +12,11 @@ import { GetWalletQuery } from '../application/queries/get-wallet.query.js';
 import { ListWalletLedgerQuery } from '../application/queries/list-wallet-ledger.query.js';
 import { SubmitWagerTransactionUseCase } from '../application/wagering/submit-wager-transaction.use-case.js';
 import { OpenWalletUseCase } from '../application/wallets/open-wallet.use-case.js';
+import { ReconcileWalletUseCase } from '../application/wallets/reconcile-wallet.use-case.js';
+import {
+  RECONCILIATION_READER,
+  type ReconciliationReader,
+} from '../application/ports/reconciliation-reader.js';
 import { DatabaseModule } from '../infra/database/database.module.js';
 import { ProviderAuthGuard } from './provider-auth.guard.js';
 import { WageringController } from './wagering.controller.js';
@@ -30,7 +31,6 @@ import { WalletsController } from './wallets.controller.js';
   controllers: [WalletsController, WageringController],
   providers: [
     ProviderAuthGuard,
-    { provide: WAGERING_METRICS, useClass: NoopWageringMetrics },
     {
       provide: OpenWalletUseCase,
       useFactory: (uow: UnitOfWork, clock: Clock, ids: IdGenerator) =>
@@ -42,6 +42,12 @@ import { WalletsController } from './wallets.controller.js';
       useFactory: (uow: UnitOfWork, clock: Clock, ids: IdGenerator, metrics: WageringMetrics) =>
         new SubmitWagerTransactionUseCase(uow, clock, ids, metrics),
       inject: [UNIT_OF_WORK, CLOCK, ID_GENERATOR, WAGERING_METRICS],
+    },
+    {
+      provide: ReconcileWalletUseCase,
+      useFactory: (reader: ReconciliationReader, metrics: WageringMetrics) =>
+        new ReconcileWalletUseCase(reader, metrics),
+      inject: [RECONCILIATION_READER, WAGERING_METRICS],
     },
     {
       provide: GetWalletQuery,

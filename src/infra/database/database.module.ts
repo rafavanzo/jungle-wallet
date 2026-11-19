@@ -5,10 +5,12 @@ import { Module } from '@nestjs/common';
 
 import { CLOCK } from '../../application/ports/clock.js';
 import { ID_GENERATOR } from '../../application/ports/id-generator.js';
+import { RECONCILIATION_READER } from '../../application/ports/reconciliation-reader.js';
 import { UNIT_OF_WORK } from '../../application/ports/unit-of-work.js';
 import { SystemClock } from '../system/system-clock.js';
 import { UuidV7Generator } from '../system/uuid-v7-generator.js';
 import { buildOrmConfig, requireDatabaseUrl } from './mikro-orm.config.js';
+import { MikroOrmReconciliationReader } from './mikro-orm-reconciliation-reader.js';
 import { MikroOrmUnitOfWork } from './mikro-orm-unit-of-work.js';
 
 /**
@@ -32,9 +34,14 @@ import { MikroOrmUnitOfWork } from './mikro-orm-unit-of-work.js';
       useFactory: (orm: PostgreSqlMikroORM) => new MikroOrmUnitOfWork(orm),
       inject: [MikroORM],
     },
+    {
+      provide: RECONCILIATION_READER,
+      useFactory: (orm: PostgreSqlMikroORM) => new MikroOrmReconciliationReader(orm),
+      inject: [MikroORM],
+    },
     { provide: CLOCK, useClass: SystemClock },
     { provide: ID_GENERATOR, useClass: UuidV7Generator },
   ],
-  exports: [UNIT_OF_WORK, CLOCK, ID_GENERATOR],
+  exports: [UNIT_OF_WORK, RECONCILIATION_READER, CLOCK, ID_GENERATOR],
 })
 export class DatabaseModule {}

@@ -4,6 +4,7 @@ import {
   Get,
   Headers,
   Inject,
+  Logger,
   Param,
   Post,
   Res,
@@ -38,6 +39,8 @@ export class WageringController {
     private readonly getByExternalId: GetTransactionByExternalIdQuery,
   ) {}
 
+  private readonly logger = new Logger(WageringController.name);
+
   @Post('wagering/transactions')
   async submit(
     @Body({ schema: wagerTransactionPayloadSchema }) body: WagerTransactionPayload,
@@ -46,10 +49,24 @@ export class WageringController {
     @Res({ passthrough: true }) response: Response,
   ): Promise<SubmitWagerTransactionResult> {
     const idempotencyKey = requireIdempotencyKey(idempotencyKeyHeader);
+    const startedAt = performance.now();
     const result = await this.submitTransaction.execute({
       ...body,
       idempotencyKey,
       correlationId,
+    });
+    // Ids e resultado; sem o payload financeiro completo.
+    this.logger.log({
+      msg: 'wager_transaction',
+      correlationId,
+      transactionId: result.transactionId,
+      walletId: body.walletId,
+      providerId: body.providerId,
+      kind: body.kind,
+      status: result.status,
+      failureCode: result.failureCode,
+      idempotentReplay: result.idempotentReplay,
+      latencyMs: Math.round(performance.now() - startedAt),
     });
     response.status(statusForResult(result));
     return result;

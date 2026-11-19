@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Inject, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Inject,
+  Logger,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 
 import { GetWalletQuery } from '../application/queries/get-wallet.query.js';
 import { ListWalletLedgerQuery } from '../application/queries/list-wallet-ledger.query.js';
@@ -7,6 +18,10 @@ import {
   type OpenWalletResult,
   OpenWalletUseCase,
 } from '../application/wallets/open-wallet.use-case.js';
+import {
+  type ReconciliationResult,
+  ReconcileWalletUseCase,
+} from '../application/wallets/reconcile-wallet.use-case.js';
 import { type OpenWalletPayload, openWalletPayloadSchema } from '../contracts/wallet.contract.js';
 import { CorrelationId } from './correlation-id.js';
 import { ProviderAuthGuard } from './provider-auth.guard.js';
@@ -19,7 +34,10 @@ export class WalletsController {
     @Inject(OpenWalletUseCase) private readonly openWallet: OpenWalletUseCase,
     @Inject(GetWalletQuery) private readonly getWallet: GetWalletQuery,
     @Inject(ListWalletLedgerQuery) private readonly listLedger: ListWalletLedgerQuery,
+    @Inject(ReconcileWalletUseCase) private readonly reconcileWallet: ReconcileWalletUseCase,
   ) {}
+
+  private readonly logger = new Logger(WalletsController.name);
 
   @Post()
   open(
@@ -40,5 +58,27 @@ export class WalletsController {
     @Query({ schema: ledgerQuerySchema }) query: LedgerQuery,
   ): Promise<LedgerPageView> {
     return this.listLedger.execute({ walletId, cursor: query.cursor, limit: query.limit });
+  }
+
+  /** 200 com consistent true ou false; a divergência é logada e nunca corrigida. */
+  @Post(':walletId/reconciliation')
+  @HttpCode(200)
+  async reconcile(
+    @Param('walletId', { schema: uuidParam }) walletId: string,
+    @CorrelationId() correlationId: string,
+  ): Promise<ReconciliationResult> {
+    const result = await this.reconcileWallet.execute(walletId);
+    if (!result.consistent) {
+      this.logger.error({
+        msg: 'Divergência de reconciliação',
+        correlationId,
+        walletId,
+        storedBalance: result.storedBalance,
+        calculatedBalance: result.calculatedBalance,
+        difference: result.difference,
+        checkedEntries: result.checkedEntries,
+      });
+    }
+    return result;
   }
 }
