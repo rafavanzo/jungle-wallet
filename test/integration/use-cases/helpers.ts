@@ -22,7 +22,7 @@ interface ChainLink {
 }
 
 /**
- * Invariante final de todos os testes de caso de uso (seção 13), conferido
+ * Invariante final de todos os testes de caso de uso, conferido
  * direto em SQL:
  * - o saldo da wallet é igual ao saldo reconstruído pelo ledger;
  * - a version é 1 mais o número de movimentos depois da abertura;

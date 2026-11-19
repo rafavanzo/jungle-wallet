@@ -21,7 +21,6 @@ export interface TestWallet {
   playerId: string;
 }
 
-/** Cliente HTTP mínimo para uma instância da API. */
 export class ApiClient {
   constructor(readonly baseUrl: string) {}
 

@@ -5,7 +5,6 @@ import { LedgerDirection } from './ledger-direction.js';
 import { WalletLedgerEntry } from './wallet-ledger-entry.js';
 import { InsufficientFundsError } from './wallet-errors.js';
 
-/** Campos persistidos da Wallet. */
 export interface WalletState {
   id: string;
   playerId: string;
@@ -109,7 +108,6 @@ export class Wallet {
     return { wallet, openingEntry };
   }
 
-  /** Reconstrói a partir do banco, sem validar. */
   static rehydrate(state: WalletState): Wallet {
     return new Wallet(state);
   }

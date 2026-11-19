@@ -1,6 +1,5 @@
 import { EntitySchema } from '@mikro-orm/postgresql';
 
-/** Espelho da tabela `wager_transactions`. */
 export class WagerTransactionRecord {
   id!: string;
   providerId!: string;

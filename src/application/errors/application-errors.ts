@@ -32,7 +32,6 @@ export class WalletAlreadyExistsError extends ApplicationError {
   override readonly code = 'WALLET_ALREADY_EXISTS';
 }
 
-/** playerId vazio ou que não é string. */
 export class InvalidPlayerIdError extends ApplicationError {
   override readonly code = 'INVALID_PLAYER_ID';
 }
@@ -41,7 +40,6 @@ export class TransactionNotFoundError extends ApplicationError {
   override readonly code = 'TRANSACTION_NOT_FOUND';
 }
 
-/** Cursor de paginação que não decodifica ou está num formato desconhecido. */
 export class InvalidCursorError extends ApplicationError {
   override readonly code = 'INVALID_CURSOR';
 }

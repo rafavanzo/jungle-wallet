@@ -104,7 +104,7 @@ export class WagerTransactionProcessor {
             : wallet.credit(movement);
       } catch (error) {
         if (error instanceof InsufficientFundsError) {
-          // Só BET e ROLLBACK debitam; a reversão sem saldo tem código próprio (regra 9).
+          // Só BET e ROLLBACK debitam; a reversão sem saldo tem código próprio.
           return this.reject(
             context,
             transaction.kind === WagerTransactionKind.Rollback

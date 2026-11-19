@@ -11,7 +11,7 @@ const CHECK_TIMEOUT_MS = 1_000;
 type DependencyStatus = 'up' | 'down';
 
 /**
- * Health checks (seção 9), sem autenticação. O correlation id vem do
+ * Health checks, sem autenticação. O correlation id vem do
  * middleware global.
  */
 @Controller('health')

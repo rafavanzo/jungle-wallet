@@ -1,5 +1,5 @@
 /**
- * Momentos de negócio que alimentam as métricas operacionais (seção 12).
+ * Momentos de negócio que alimentam as métricas operacionais.
  * Quem os conhece é o caso de uso; a implementação (Prometheus) fica na infra.
  */
 export interface WageringMetrics {

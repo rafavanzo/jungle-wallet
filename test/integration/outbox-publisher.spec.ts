@@ -48,9 +48,7 @@ const publisherWith = (publisher: EventPublisher, orm: MikroORM = db.orm) =>
 
 /** Roda ciclos até um ciclo não encontrar nada. */
 async function drain(publisher: PublishOutboxBatchUseCase): Promise<void> {
-  while ((await publisher.execute()).claimed > 0) {
-    // Próximo lote.
-  }
+  while ((await publisher.execute()).claimed > 0) {}
 }
 
 /** Datas em epoch ms: o execute bruto devolve timestamptz como texto. */

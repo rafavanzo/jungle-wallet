@@ -77,7 +77,6 @@ export class WalletLedgerEntry {
     return entry;
   }
 
-  /** Reconstrói a partir do banco, sem validar. */
   static rehydrate(state: WalletLedgerEntryState): WalletLedgerEntry {
     return new WalletLedgerEntry(state);
   }

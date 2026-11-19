@@ -65,7 +65,6 @@ export class OutboxMessage {
     });
   }
 
-  /** Reconstrói a partir do banco, sem validar. */
   static rehydrate(state: OutboxMessageState): OutboxMessage {
     return new OutboxMessage(state);
   }

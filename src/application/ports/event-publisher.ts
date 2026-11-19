@@ -4,7 +4,6 @@ export interface OutgoingEvent {
   eventId: string;
   /** Ordem garantida só dentro do grupo (a wallet). */
   groupId: string;
-  /** Envelope do evento serializado em JSON. */
   body: string;
 }
 

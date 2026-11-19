@@ -1,6 +1,5 @@
 import { DomainError } from '../shared/domain-error.js';
 
-/** Débito maior que o saldo disponível. */
 export class InsufficientFundsError extends DomainError {
   override readonly code = 'INSUFFICIENT_FUNDS';
 }

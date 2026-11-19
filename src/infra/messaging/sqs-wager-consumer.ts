@@ -170,7 +170,6 @@ export class SqsWagerConsumer implements BeforeApplicationShutdown {
     }
   }
 
-  /** Executa a ação no SQS. */
   async settle(message: Message, action: ConsumerAction): Promise<void> {
     const { queue, dlq } = await this.queueUrls();
     const messageId = message.MessageId;

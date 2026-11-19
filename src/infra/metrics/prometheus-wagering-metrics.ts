@@ -6,7 +6,7 @@ import type { WageringMetrics } from '../../application/metrics/wagering-metrics
 export type OutboxLagReader = () => Promise<number>;
 
 /**
- * Métricas da seção 12 em formato Prometheus. Registry próprio por instância:
+ * Métricas operacionais em formato Prometheus. Registry próprio por instância:
  * vários apps no mesmo processo (testes) não colidem no registro global.
  */
 export class PrometheusWageringMetrics implements WageringMetrics {

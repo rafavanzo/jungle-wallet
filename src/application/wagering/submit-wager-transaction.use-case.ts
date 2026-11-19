@@ -197,7 +197,7 @@ export class SubmitWagerTransactionUseCase {
     return { ...toResult(original, true), duplicateMessage: { payloadMismatch } };
   }
 
-  /** Passo 5: replay com o resultado original, ou conflito. */
+  /** Replay com o resultado original, ou conflito. */
   private async checkIdempotency(
     { transactions }: TransactionalRepositories,
     transaction: WagerTransaction,

@@ -14,7 +14,7 @@ import {
   UnsupportedTransactionKindError,
 } from './wagering-errors.js';
 
-/** Tentativas de resolver uma referência ausente antes de rejeitar (seção 7.1). */
+/** Tentativas de resolver uma referência ausente antes de rejeitar. */
 export const MAX_REFERENCE_ATTEMPTS = 10;
 export const REFERENCE_RETRY_BASE_DELAY_MS = 1_000;
 export const REFERENCE_RETRY_MAX_DELAY_MS = 5 * 60 * 1_000;
@@ -29,7 +29,7 @@ const TERMINAL_STATUSES: ReadonlySet<WagerTransactionStatus> = new Set([
   WagerTransactionStatus.Failed,
 ]);
 
-/** Kinds que cada kind pode referenciar (regra 3). BET e OPENING não têm referência. */
+/** Kinds que cada kind pode referenciar. BET e OPENING não têm referência. */
 const ALLOWED_REFERENCE_KINDS: Partial<
   Record<WagerTransactionKind, readonly WagerTransactionKind[]>
 > = {
@@ -74,7 +74,6 @@ export interface OpeningTransactionProps {
   at: Date;
 }
 
-/** Campos persistidos da WagerTransaction. */
 export interface WagerTransactionState extends CreateWagerTransactionProps {
   status: WagerTransactionStatus;
   referenceTransactionId: string | undefined;
@@ -97,10 +96,6 @@ export interface WagerTransactionState extends CreateWagerTransactionProps {
  *                          │      ▲         ├─► REJECTED
  *                          └──────┘         └─► FAILED
  *                     (nova tentativa)
- *
- * O domínio decide se algo é válido; o caso de uso busca os dados; o banco
- * garante que a decisão vale mesmo com concorrência (por exemplo, a "única
- * reversão" por referência fica num índice único).
  */
 export class WagerTransaction {
   readonly id: string;
@@ -148,7 +143,6 @@ export class WagerTransaction {
       state.nextReferenceAttemptAt && copyDate(state.nextReferenceAttemptAt);
   }
 
-  /** Operação vinda de um provedor. Nasce PENDING. */
   static create(props: CreateWagerTransactionProps): WagerTransaction {
     const { kind, money, referenceExternalTransactionId } = props;
 
@@ -223,7 +217,6 @@ export class WagerTransaction {
     });
   }
 
-  /** Reconstrói a partir do banco, sem validar. */
   static rehydrate(state: WagerTransactionState): WagerTransaction {
     return new WagerTransaction(state);
   }
@@ -249,7 +242,7 @@ export class WagerTransaction {
     return this._processedAt && copyDate(this._processedAt);
   }
 
-  /** Saldo observado ao finalizar a transação; devolvido no replay idempotente (regra 7). */
+  /** Saldo observado ao finalizar a transação; devolvido no replay idempotente. */
   get resultingBalance(): Money | undefined {
     return this._resultingBalance;
   }
@@ -363,7 +356,8 @@ export class WagerTransaction {
   }
 
   /**
-   * Aplica as regras 2, 3 e 5 e exige a referência PROCESSED. Retorna o código
+   * Confere tipo, valor e contexto (provedor, player, wallet, moeda e rodada) da
+   * referência e exige que ela esteja PROCESSED. Retorna o código
    * da rejeição, ou undefined se a referência é compatível. Uma referência
    * incompatível é um resultado de negócio esperado, não uma exceção.
    *

@@ -19,7 +19,7 @@ export async function createHttpApp(
   options: NestApplicationOptions = {},
 ): Promise<NestExpressApplication> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    // Logs em JSON, uma linha por evento (seção 12). Os testes passam logger: false.
+    // Logs em JSON, uma linha por evento. Os testes passam logger: false.
     logger: new ConsoleLogger({ json: true }),
     ...options,
     bodyParser: false,

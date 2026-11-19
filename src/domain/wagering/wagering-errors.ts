@@ -9,7 +9,7 @@ export class InvalidTransactionStateError extends DomainError {
   override readonly code = 'INVALID_TRANSACTION_STATE';
 }
 
-/** REFUND ou ROLLBACK sem referência (regra 1). */
+/** REFUND ou ROLLBACK sem referência. */
 export class MissingReferenceError extends DomainError {
   override readonly code = 'MISSING_REFERENCE';
 }
@@ -19,7 +19,6 @@ export class UnexpectedReferenceError extends DomainError {
   override readonly code = 'UNEXPECTED_REFERENCE';
 }
 
-/** A transação referencia a si mesma. */
 export class SelfReferenceError extends DomainError {
   override readonly code = 'SELF_REFERENCE';
 }

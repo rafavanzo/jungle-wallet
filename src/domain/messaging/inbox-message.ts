@@ -32,7 +32,6 @@ export class InboxMessage {
     return new InboxMessage({ ...props, processedAt: undefined });
   }
 
-  /** Reconstrói a partir do banco, sem validar. */
   static rehydrate(state: InboxMessageState): InboxMessage {
     return new InboxMessage(state);
   }

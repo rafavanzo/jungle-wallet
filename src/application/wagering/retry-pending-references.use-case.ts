@@ -19,7 +19,7 @@ export interface RetryBatchResult {
 }
 
 /**
- * Um ciclo do worker de referência pendente (seção 7.1).
+ * Um ciclo do worker de referência pendente.
  *
  * Busca candidatos sem lock. Cada um vai numa transação própria: lock da
  * wallet primeiro (a mesma ordem do caso de uso de entrada, então sem

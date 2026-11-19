@@ -8,19 +8,19 @@
 export enum FailureCode {
   /** BET sem saldo suficiente. */
   InsufficientFunds = 'INSUFFICIENT_FUNDS',
-  /** ROLLBACK que deixaria o saldo negativo (regra 9). */
+  /** ROLLBACK que deixaria o saldo negativo. */
   ReversalInsufficientFunds = 'REVERSAL_INSUFFICIENT_FUNDS',
-  /** Referência não encontrada após esgotar as tentativas (seção 7.1). */
+  /** Referência não encontrada após esgotar as tentativas. */
   ReferenceNotFound = 'REFERENCE_NOT_FOUND',
-  /** Referência de outro provider, player, wallet, moeda ou rodada (regra 2). */
+  /** Referência de outro provider, player, wallet, moeda ou rodada. */
   ReferenceMismatch = 'REFERENCE_MISMATCH',
-  /** Tipo de referência não permitido para o kind (regra 3). */
+  /** Tipo de referência não permitido para o kind. */
   ReferenceInvalidKind = 'REFERENCE_INVALID_KIND',
   /** A referência foi REJECTED ou FAILED. */
   ReferenceNotProcessed = 'REFERENCE_NOT_PROCESSED',
-  /** A referência já foi revertida (regra 4, interpretação estrita). */
+  /** A referência já foi revertida. */
   ReferenceAlreadyReversed = 'REFERENCE_ALREADY_REVERSED',
-  /** Valor da reversão diferente do valor da referência (regra 5). */
+  /** Valor da reversão diferente do valor da referência. */
   ReferenceAmountMismatch = 'REFERENCE_AMOUNT_MISMATCH',
   /** Moeda da operação diferente da moeda da wallet. */
   CurrencyMismatch = 'CURRENCY_MISMATCH',
