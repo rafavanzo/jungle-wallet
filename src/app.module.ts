@@ -1,4 +1,8 @@
 import { Module } from '@nestjs/common';
 
-@Module({})
+import { DatabaseModule } from './infra/database/database.module.js';
+
+@Module({
+  imports: [DatabaseModule],
+})
 export class AppModule {}
