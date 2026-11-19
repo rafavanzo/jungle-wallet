@@ -1,7 +1,9 @@
 import { Migrator } from '@mikro-orm/migrations';
 import { defineConfig } from '@mikro-orm/postgresql';
 
+import { InboxMessageSchema } from './records/inbox-message.record.js';
 import { LedgerEntrySchema } from './records/ledger-entry.record.js';
+import { OutboxMessageSchema } from './records/outbox-message.record.js';
 import { WagerTransactionSchema } from './records/wager-transaction.record.js';
 import { WalletSchema } from './records/wallet.record.js';
 
@@ -11,7 +13,13 @@ export function buildOrmConfig(clientUrl: string) {
   return defineConfig({
     clientUrl,
     // Registros de persistência (EntitySchema), separados das classes de domínio.
-    entities: [WalletSchema, WagerTransactionSchema, LedgerEntrySchema],
+    entities: [
+      WalletSchema,
+      WagerTransactionSchema,
+      LedgerEntrySchema,
+      OutboxMessageSchema,
+      InboxMessageSchema,
+    ],
     extensions: [Migrator],
     migrations: {
       // O Bun executa TypeScript direto: as migrations .ts são carregadas da pasta.

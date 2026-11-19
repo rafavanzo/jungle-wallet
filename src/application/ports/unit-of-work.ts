@@ -1,4 +1,6 @@
+import type { InboxRepository } from './inbox-repository.js';
 import type { LedgerRepository } from './ledger-repository.js';
+import type { OutboxRepository } from './outbox-repository.js';
 import type { WagerTransactionRepository } from './wager-transaction-repository.js';
 import type { WalletRepository } from './wallet-repository.js';
 
@@ -6,6 +8,8 @@ export interface TransactionalRepositories {
   wallets: WalletRepository;
   transactions: WagerTransactionRepository;
   ledger: LedgerRepository;
+  outbox: OutboxRepository;
+  inbox: InboxRepository;
 }
 
 /**

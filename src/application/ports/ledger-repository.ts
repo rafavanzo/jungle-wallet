@@ -3,7 +3,7 @@ import type { WalletLedgerEntry } from '../../domain/wallet/wallet-ledger-entry.
 export interface LedgerRepository {
   insert(entry: WalletLedgerEntry): Promise<void>;
   /**
-   * Lançamentos da wallet em ordem cronológica (o id é UUID v7). 
+   * Lançamentos da wallet em ordem cronológica (o id é UUID v7).
    * `afterId` é o cursor: devolve só os lançamentos posteriores a ele.
    */
   listByWallet(
