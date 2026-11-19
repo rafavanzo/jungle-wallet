@@ -8,10 +8,13 @@ import { WagerTransactionSchema } from './records/wager-transaction.record.js';
 import { WalletSchema } from './records/wallet.record.js';
 
 const MIGRATIONS_PATH = `${import.meta.dirname}/migrations`;
+const DEFAULT_POOL_MAX = 10;
 
-export function buildOrmConfig(clientUrl: string) {
+export function buildOrmConfig(clientUrl: string, poolMax: number = readPoolMax()) {
   return defineConfig({
     clientUrl,
+    // Cada execução concorrente segura uma conexão enquanto espera o lock da wallet.
+    pool: { max: poolMax },
     // Registros de persistência (EntitySchema), separados das classes de domínio.
     entities: [
       WalletSchema,
@@ -35,6 +38,19 @@ export function buildOrmConfig(clientUrl: string) {
       snapshotOnMigrate: false,
     },
   });
+}
+
+/** DB_POOL_MAX: inteiro positivo, padrão 10. */
+export function readPoolMax(): number {
+  const raw = process.env.DB_POOL_MAX;
+  if (raw === undefined || raw === '') {
+    return DEFAULT_POOL_MAX;
+  }
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`DB_POOL_MAX inválido: ${raw}`);
+  }
+  return value;
 }
 
 export function requireDatabaseUrl(variable = 'DATABASE_URL'): string {
