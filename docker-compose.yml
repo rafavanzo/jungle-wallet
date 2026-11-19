@@ -8,9 +8,11 @@ services:
       POSTGRES_PASSWORD: jungle
       POSTGRES_DB: jungle_wallet
     ports:
-      - "5432:5432"
+      # 5433 no host para não colidir com um PostgreSQL instalado localmente na 5432.
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U jungle -d jungle_wallet"]
       interval: 5s
