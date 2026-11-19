@@ -36,5 +36,11 @@ aws_sqs create-queue \
   --queue-name wager-transactions.fifo \
   --attributes file:///tmp/attrs.json
 
+# 3) Fila de eventos publicados pela outbox. Deduplicação pelo eventId
+#    (MessageDeduplicationId), nunca pelo conteúdo.
+aws_sqs create-queue \
+  --queue-name wagering-events.fifo \
+  --attributes FifoQueue=true,ContentBasedDeduplication=false
+
 echo "Filas criadas:"
 aws_sqs list-queues
