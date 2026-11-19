@@ -17,6 +17,14 @@ export class InvalidMoneyError extends DomainError {
   override readonly code = 'INVALID_MONEY';
 }
 
+/**
+ * Valor bem formado, mas não permitido para a operação: débito ou crédito de
+ * zero ou negativo, saldo inicial negativo. Formato inválido é INVALID_MONEY.
+ */
+export class InvalidAmountError extends DomainError {
+  override readonly code = 'INVALID_AMOUNT';
+}
+
 export class MoneyOverflowError extends DomainError {
   override readonly code = 'AMOUNT_OUT_OF_RANGE';
 }
