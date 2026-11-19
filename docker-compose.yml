@@ -1,0 +1,42 @@
+name: jungle-wallet
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: jungle
+      POSTGRES_PASSWORD: jungle
+      POSTGRES_DB: jungle_wallet
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jungle -d jungle_wallet"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  sqs:
+    image: ministackorg/ministack:1.5.42
+    ports:
+      - "4566:4566"
+
+  sqs-init:
+    image: amazon/aws-cli:2.40.4
+    depends_on:
+      sqs:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/init-queues.sh"]
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      SQS_ENDPOINT: http://sqs:4566
+      MAX_RECEIVE_COUNT: "5"
+    volumes:
+      - ./infra/sqs/init-queues.sh:/init-queues.sh:ro
+    restart: "no"
+
+volumes:
+  pgdata:
