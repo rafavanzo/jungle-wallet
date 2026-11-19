@@ -296,3 +296,37 @@ A seção 7 pede que interpretações adicionais sejam documentadas.
 - **Erros do banco traduzidos num lugar só:** `23505` vira `UniqueViolationError`
   (com a constraint); lock timeout, deadlock, serialização e conexão viram
   `TransientInfrastructureError`; o resto sobe como bug.
+
+### ADR-010: eventos, outbox, inbox e payloadHash
+
+- **Eventos:** `IntegrationEvent` abstrato, uma subclasse por evento, com
+  `eventType` e `version` fixados no tipo. O `data` só tem valores JSON (Money
+  como `{ amount, currency }`) e é congelado. Todo evento leva o `walletId`, que
+  vai ser o `MessageGroupId` no SQS.
+- **`WagerTransactionPendingReference` sai só na entrada em
+  `PENDING_REFERENCE`.** As novas tentativas do worker não publicam de novo; o
+  desfecho sai como `Processed` ou `Rejected`.
+- **Outbox sem limite de tentativas** (backoff de 2s até 5min). Um evento na
+  outbox já é um fato commitado; desistir seria perdê-lo. Falha prolongada é
+  problema de infraestrutura, visível pela métrica de outbox lag. Contraste com
+  o `PENDING_REFERENCE`, que tem limite porque ali a espera pode nunca acabar.
+- **Inbox com `INSERT ... ON CONFLICT DO NOTHING`**: a duplicata é resolvida no
+  banco de forma atômica. Uma segunda instância com a mesma mensagem espera o
+  commit da primeira e recebe "já existe".
+
+**Algoritmo do `payloadHash` (v1)**
+
+1. Entram só os campos de negócio: `providerId`, `externalTransactionId`,
+   `playerId`, `walletId`, `roundId`, `gameId`, `kind`, `money` e
+   `referenceExternalTransactionId`. Ficam de fora `idempotencyKey`,
+   `messageId`, headers e qualquer metadado de transporte.
+2. Normalização: `amount` passa por `Money.from(...).toString()` (`"25"` e
+   `"25.00"` dão o mesmo hash); referência ausente, `null` ou `undefined` é
+   omitida.
+3. JSON canônico: chaves ordenadas recursivamente (por código de caractere, não
+   pela localidade), sem espaços e sem `undefined`.
+4. SHA-256 em hexadecimal, gravado como `sha256-v1:<hex>`. O prefixo identifica
+   a versão do algoritmo caso ele mude.
+
+Os campos são os mesmos no HTTP e no SQS: a mesma operação enviada pelas duas
+portas vira replay, não conflito.
