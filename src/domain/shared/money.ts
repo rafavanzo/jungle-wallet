@@ -136,9 +136,7 @@ export class Money {
 
   private assertSameCurrency(other: Money): void {
     if (this.currency !== other.currency) {
-      throw new CurrencyMismatchError(
-        `Moedas diferentes: ${this.currency} e ${other.currency}`,
-      );
+      throw new CurrencyMismatchError(`Moedas diferentes: ${this.currency} e ${other.currency}`);
     }
   }
 
