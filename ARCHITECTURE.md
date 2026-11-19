@@ -275,3 +275,24 @@ A seção 7 pede que interpretações adicionais sejam documentadas.
   permite); cada teste usa ids novos.
 - **Postgres exposto na porta 5433** do host, para não colidir com um
   PostgreSQL instalado localmente na 5432.
+
+### ADR-009: persistência e estratégia transacional
+
+- **Portas na aplicação, MikroORM só na infraestrutura.** Os casos de uso falam
+  com `UnitOfWork` e repositórios; trocar o ORM mexe só em `src/infra/`.
+- **`UnitOfWork.run`** = `em.fork()` + `em.transactional()` em READ COMMITTED,
+  com `SET LOCAL lock_timeout`. Os repositórios só existem dentro do `run`.
+  READ COMMITTED porque, depois de esperar o lock da wallet, cada comando vê o
+  que a outra execução acabou de commitar; o lock já serializa.
+- **Comandos explícitos, sem change tracking.** Cada insert/update roda na hora,
+  na ordem do caso de uso (o lançamento tem FK para a transação). Leituras usam
+  `disableIdentityMap`, então o `flush` do commit não grava nada por conta
+  própria. Do MikroORM usamos a fronteira transacional e o `LockMode`.
+- **Updates com guarda:** wallet por `version`, transação pelo status anterior.
+  Zero linhas afetadas vira `StaleUpdateError`.
+- **Money no banco:** `NUMERIC(20,2)` + moeda em coluna própria; o driver devolve
+  string e o mapper reconstrói com `Money.from`. Registros (`EntitySchema`, sem
+  decorators) ficam separados das classes de domínio.
+- **Erros do banco traduzidos num lugar só:** `23505` vira `UniqueViolationError`
+  (com a constraint); lock timeout, deadlock, serialização e conexão viram
+  `TransientInfrastructureError`; o resto sobe como bug.
