@@ -1,7 +1,10 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql';
 
 import { StaleUpdateError } from '../../../application/ports/persistence-errors.js';
-import type { WagerTransactionRepository } from '../../../application/ports/wager-transaction-repository.js';
+import type {
+  ReferenceRetryCandidate,
+  WagerTransactionRepository,
+} from '../../../application/ports/wager-transaction-repository.js';
 import type { WagerTransaction } from '../../../domain/wagering/wager-transaction.js';
 import { WagerTransactionKind } from '../../../domain/wagering/wager-transaction-kind.js';
 import { WagerTransactionStatus } from '../../../domain/wagering/wager-transaction-status.js';
@@ -36,6 +39,24 @@ export class MikroOrmWagerTransactionRepository implements WagerTransactionRepos
       status: WagerTransactionStatus.Processed,
     });
     return count > 0;
+  }
+
+  /** Sem lock: o worker trava a wallet depois, transação por transação. */
+  async findDueForReferenceRetry(now: Date, limit: number): Promise<ReferenceRetryCandidate[]> {
+    const records = await this.em.find(
+      WagerTransactionRecord,
+      {
+        status: WagerTransactionStatus.PendingReference,
+        nextReferenceAttemptAt: { $lte: now },
+      },
+      {
+        fields: ['id', 'walletId'],
+        orderBy: { nextReferenceAttemptAt: 'asc' },
+        limit,
+        disableIdentityMap: true,
+      },
+    );
+    return records.map((record) => ({ id: record.id, walletId: record.walletId }));
   }
 
   async insert(transaction: WagerTransaction): Promise<void> {
