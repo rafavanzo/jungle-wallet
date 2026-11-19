@@ -122,3 +122,126 @@ A moeda precisa ser um código ISO-4217 em maiúsculas (`/^[A-Z]{3}$/`).
 - Valores equivalentes como `"25"` e `"25.00"` representam o mesmo dinheiro.
   O `payloadHash` de idempotência deve ser calculado sobre o valor normalizado,
   senão a mesma aposta geraria hashes diferentes.
+
+### ADR-004: máquina de estados da WagerTransaction e retry de referência
+
+**Transições válidas**
+
+```
+PENDING ─────────┬─► PROCESSED
+                 ├─► REJECTED
+                 ├─► FAILED
+                 └─► PENDING_REFERENCE ─┬─► PROCESSED
+                       │      ▲         ├─► REJECTED
+                       └──────┘         └─► FAILED
+                  (nova tentativa)
+```
+
+- `PROCESSED`, `REJECTED` e `FAILED` são terminais. Qualquer transição a partir
+  deles lança `InvalidTransactionStateError`: é erro de programação, não caminho
+  de negócio, e por isso não tem `failureCode` para o provedor.
+- `OPENING` é interno e nasce `PROCESSED` por uma factory própria
+  (`WagerTransaction.opening`). O `create`, usado para tudo que vem de
+  provedores, rejeita `OPENING`, então é estruturalmente impossível submetê-lo
+  pela API ou pela fila.
+
+**Referência fora de ordem (seção 7.1)**
+
+Quando a referência ainda não existe, a transação vai para `PENDING_REFERENCE`
+e é tentada de novo com backoff exponencial: `min(1s × 2^(tentativa − 1), 5min)`,
+ou seja 1s, 2s, 4s, ..., 256s e depois 5min. O limite é de 10 tentativas, cerca
+de 13 minutos no total. Esgotado o limite, a transação é rejeitada com
+`REFERENCE_NOT_FOUND`.
+
+Justificativa do limite: na prática os provedores enviam a operação
+referenciada em segundos. Se em 13 minutos ela não chegou, é muito provável que
+não chegue, e manter a transação pendente por mais tempo só esconde o problema.
+O limite e os intervalos são constantes (`MAX_REFERENCE_ATTEMPTS`,
+`REFERENCE_RETRY_*`), fáceis de ajustar.
+
+Uma referência que existe mas ainda está `PENDING` ou `PENDING_REFERENCE` conta
+como ausente: a transação que depende dela também fica pendente.
+
+### ADR-005: cada transação pode ser revertida no máximo uma vez
+
+**Contexto**
+
+A regra 4 diz que uma referência não pode ser revertida duas vezes pelo mesmo
+tipo de operação. Numa leitura literal, dois tipos diferentes podem reverter a
+mesma transação:
+
+| Operação                  | Saldo  |
+| ------------------------- | ------ |
+| saldo inicial             | 100.00 |
+| BET de 10.00              | 90.00  |
+| REFUND do BET (+10.00)    | 100.00 |
+| ROLLBACK do BET (+10.00)  | 110.00 |
+
+O jogador termina com 10.00 a mais do que tinha: um crédito duplicado.
+
+**Decisão**
+
+Cada transação pode ser revertida no máximo uma vez, por qualquer tipo de
+reversão (`REFUND` ou `ROLLBACK`). A segunda reversão é rejeitada com
+`REFERENCE_ALREADY_REVERSED`. É mais estrito que a regra 4, então a satisfaz, e
+elimina o crédito duplicado.
+
+O encadeamento legítimo continua funcionando: BET, depois REFUND do BET, depois
+ROLLBACK do REFUND. Cada transação é revertida uma vez só.
+
+**Onde a garantia mora**
+
+Não no domínio: duas instâncias podem processar as duas reversões ao mesmo
+tempo, e só o banco resolve essa corrida. A garantia é um índice único parcial
+sobre a referência para os kinds `REFUND` e `ROLLBACK`.
+
+### ADR-006: interpretações das regras de transação
+
+A seção 7 pede que interpretações adicionais sejam documentadas.
+
+- **LOSS aceita `0.00`.** Provedores costumam mandar o valor do prêmio, que numa
+  derrota é zero. LOSS não altera o saldo. Todos os outros kinds exigem valor
+  positivo (`INVALID_AMOUNT`).
+- **Referência por kind.** BET não aceita referência. WIN e LOSS podem
+  referenciar um BET. REFUND exige e só aceita um BET. ROLLBACK exige e aceita
+  BET, WIN ou REFUND. Uma transação não pode referenciar a si mesma.
+- **Regra 5 (valor igual ao da referência) vale só para reversões.** REFUND e
+  ROLLBACK devolvem exatamente o valor original. Um WIN referenciando um BET
+  tem, por natureza, um valor diferente da aposta.
+- **Direção do ledger.** OPENING, WIN e REFUND creditam; BET debita; LOSS não
+  gera lançamento; ROLLBACK é o inverso da referência (de BET credita, de WIN ou
+  REFUND debita).
+- **Ordem das checagens de referência.** Primeiro os erros de payload (kind,
+  campos da regra 2, valor), depois o estado da referência. Um payload errado é
+  sempre reportado como tal, independentemente do estado da referência.
+- **Saldo resultante na transação.** `PROCESSED` e `REJECTED` guardam o saldo
+  observado ao finalizar. O replay idempotente (regra 7) devolve esse valor sem
+  consultar o ledger, inclusive para LOSS e rejeições, que não têm lançamento.
+  É um retrato histórico, não um saldo vivo, então não diverge do ledger.
+- **Rejeição persistida × erro de formato.** Os `failureCode`s (`FailureCode`)
+  são rejeições de negócio: a transação é persistida como `REJECTED` e fica
+  auditável. Erros de formato (`INVALID_MONEY`, `INVALID_AMOUNT`, referência
+  ausente num REFUND, `RESERVED_PROVIDER_ID`) não geram transação: são um 400
+  direto.
+- **`providerId` `internal` é reservado.** A transação OPENING usa esse
+  provedor e a chave `opening:<walletId>`. Um provedor externo que envie
+  `providerId: "internal"` é rejeitado no `create`, para não colidir com o
+  namespace interno.
+
+### ADR-007: Wallet como agregado que produz o próprio ledger
+
+- **Saldo só muda por `debit` e `credit`**, e ambos devolvem o lançamento já
+  calculado. Não existe `setBalance`: é impossível mudar o saldo sem gerar o
+  lançamento.
+- **Ids e datas vêm de fora.** O domínio não gera UUID nem lê o relógio, o que
+  deixa os testes determinísticos. Ids são UUID v7, ordenáveis por tempo.
+- **Ledger com direção e valor positivo.** `balanceAfter = balanceBefore ∓ money`
+  conforme `DEBIT`/`CREDIT`.
+- **Falha não altera estado.** Tudo é validado e o lançamento é criado antes de
+  tocar em saldo, `version` e `updatedAt`.
+- **`INSUFFICIENT_FUNDS` é genérico.** A Wallet não conhece kinds; o caso de uso
+  traduz para `REVERSAL_INSUFFICIENT_FUNDS` quando a operação é um ROLLBACK.
+- **`version` começa em 1** e só incrementa quando o saldo muda. O saldo
+  inicial entra no `open`, sem incrementar a `version`.
+- **Concorrência não é papel do agregado.** Ele garante a consistência de uma
+  operação; o lock no banco garante a serialização entre processos.
