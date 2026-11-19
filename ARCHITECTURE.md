@@ -399,3 +399,44 @@ não. O mesmo mapa vale para todos os endpoints.
 - **Formatos diferentes de propósito:** nas respostas HTTP, campo ausente vem
   como `null` (formato estável para quem consome); nos eventos ele é omitido,
   para o envelope sobreviver a `JSON.stringify`/`JSON.parse` sem mudar.
+
+### ADR-013: publisher da outbox
+
+- **Fila:** `wagering-events.fifo` (FIFO, `ContentBasedDeduplication=false`),
+  nome em `SQS_EVENTS_QUEUE_NAME`, criada pelo `init-queues.sh` (idempotente).
+- **Ciclo numa transação:** `SELECT ... WHERE published_at IS NULL AND
+  next_attempt_at <= now() ORDER BY occurred_at, id LIMIT 10 FOR UPDATE SKIP
+  LOCKED`, publica uma a uma, grava o resultado de cada uma e commita.
+- **Publicadores concorrentes** pegam lotes disjuntos (SKIP LOCKED), sem esperar
+  um pelo outro.
+- **Grupo e deduplicação:** `MessageGroupId = data.walletId`,
+  `MessageDeduplicationId = eventId`.
+- **Publica com o lock segurado:** se o processo morre, a conexão cai, o lote
+  volta e outra instância republica (at-least-once). O eventId estável torna a
+  duplicata segura: a fila descarta reenvios em 5 minutos, e o consumidor
+  deduplica pelo eventId.
+- **Trade-off:** a transação fica aberta durante a chamada de rede. É mitigado
+  pelo lote pequeno (10), pelo timeout do SDK (2 s para conectar, 5 s por
+  requisição) e por `maxAttempts: 1`, já que quem repete é a outbox, não o SDK.
+- **Nunca publica antes do commit:** a mensagem só existe depois que a transação
+  financeira commitou.
+- **Falha de publicação:** `scheduleRetry` incrementa `attempts`, agenda
+  `next_attempt_at` (2 s, 4 s, ... até 5 min) e grava `last_error`. Não há limite
+  de tentativas: um evento confirmado não pode ser perdido.
+- **Loop:** lote cheio roda de novo na hora; senão, espera 500 ms. No shutdown
+  (`beforeApplicationShutdown`, antes de o ORM fechar), para de buscar e termina
+  o lote em andamento.
+- **Papéis:** `APP_ROLES=api,outbox,consumer,pending` (padrão: todos). O
+  `main.ts` só abre a porta HTTP com `api` e só liga o publisher com `outbox`;
+  papel desconhecido é erro.
+- **Porta e adapter:** o caso de uso depende de `EventPublisher`
+  (`src/application/ports`); o SDK fica em `src/infra/messaging`, e a URL da
+  fila é resolvida por nome (`GetQueueUrl`) na primeira publicação.
+- **Vencimento pelo relógio do banco** (`now()`), o mesmo para todas as
+  instâncias. `markPublished` e `scheduleRetry` usam o `Clock` da aplicação.
+- **Limitação, ordem:** a ordem é garantida dentro de um lote, não entre lotes.
+  Dois publishers, ou um evento em backoff, podem entregar eventos da mesma
+  wallet fora de ordem. O consumidor deve se apoiar no eventId, e na `version`
+  da wallet quando a ordem importar.
+- **Limitação, alerta:** o sinal de problema prolongado é o outbox lag (idade da
+  mensagem pendente mais antiga), que ainda não é exposto como métrica.
