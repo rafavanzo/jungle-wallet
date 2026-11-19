@@ -32,7 +32,12 @@ export const WagerTransactionMapper = {
           : parseEnum(FailureCode, record.failureCode, 'failure_code'),
       processedAt: record.processedAt ?? undefined,
       resultingBalance:
-        record.resultingBalance === null ? undefined : money(record.resultingBalance),
+        record.resultingBalance === null || record.resultingBalanceCurrency === null
+          ? undefined
+          : Money.from({
+              amount: record.resultingBalance,
+              currency: record.resultingBalanceCurrency,
+            }),
       referenceAttempts: record.referenceAttempts,
       nextReferenceAttemptAt: record.nextReferenceAttemptAt ?? undefined,
     });
@@ -57,6 +62,7 @@ export const WagerTransactionMapper = {
       status: transaction.status,
       failureCode: transaction.failureCode ?? null,
       resultingBalance: transaction.resultingBalance?.toString() ?? null,
+      resultingBalanceCurrency: transaction.resultingBalance?.currency ?? null,
       referenceAttempts: transaction.referenceAttempts,
       nextReferenceAttemptAt: transaction.nextReferenceAttemptAt ?? null,
       createdAt: transaction.createdAt,

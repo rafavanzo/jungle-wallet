@@ -55,6 +55,7 @@ export class MikroOrmWagerTransactionRepository implements WagerTransactionRepos
         referenceTransactionId: record.referenceTransactionId,
         failureCode: record.failureCode,
         resultingBalance: record.resultingBalance,
+        resultingBalanceCurrency: record.resultingBalanceCurrency,
         referenceAttempts: record.referenceAttempts,
         nextReferenceAttemptAt: record.nextReferenceAttemptAt,
         processedAt: record.processedAt,

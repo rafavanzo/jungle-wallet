@@ -19,6 +19,8 @@ export class WagerTransactionRecord {
   status!: string;
   failureCode!: string | null;
   resultingBalance!: string | null;
+  /** Moeda da wallet; pode diferir de `currency` numa rejeição por CURRENCY_MISMATCH. */
+  resultingBalanceCurrency!: string | null;
   referenceAttempts!: number;
   nextReferenceAttemptAt!: Date | null;
   createdAt!: Date;
@@ -46,6 +48,7 @@ export const WagerTransactionSchema = new EntitySchema({
     status: { type: 'text' },
     failureCode: { type: 'text', nullable: true },
     resultingBalance: { type: 'decimal', columnType: 'numeric(20,2)', nullable: true },
+    resultingBalanceCurrency: { type: 'string', columnType: 'char(3)', nullable: true },
     referenceAttempts: { type: 'integer' },
     nextReferenceAttemptAt: { type: 'datetime', columnType: 'timestamptz', nullable: true },
     createdAt: { type: 'datetime', columnType: 'timestamptz' },
