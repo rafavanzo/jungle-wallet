@@ -1,3 +1,4 @@
+import { ApplicationError } from '../../application/errors/application-errors.js';
 import {
   TransientInfrastructureError,
   UniqueViolationError,
@@ -5,6 +6,7 @@ import {
 import { DomainError } from '../../domain/shared/domain-error.js';
 
 const UNIQUE_VIOLATION = '23505';
+const LOCK_TIMEOUT = '55P03';
 
 /**
  * SQLSTATE de falhas que passam sozinhas: lock timeout, serialização, deadlock,
@@ -25,7 +27,12 @@ interface DriverErrorShape {
  * sem tradução e é tratado como bug (500).
  */
 export function translateDatabaseError(error: unknown): unknown {
-  if (!(error instanceof Error) || error instanceof DomainError) {
+  // Erros do próprio sistema passam intactos, mesmo tendo um `code`.
+  if (
+    !(error instanceof Error) ||
+    error instanceof DomainError ||
+    error instanceof ApplicationError
+  ) {
     return error;
   }
 
@@ -41,9 +48,11 @@ export function translateDatabaseError(error: unknown): unknown {
   }
 
   if (TRANSIENT_SQLSTATES.has(code) || code.startsWith('08') || TRANSIENT_NETWORK_CODES.has(code)) {
-    return new TransientInfrastructureError(`Falha transitória do banco (${code})`, {
-      cause: error,
-    });
+    return new TransientInfrastructureError(
+      `Falha transitória do banco (${code})`,
+      code === LOCK_TIMEOUT,
+      { cause: error },
+    );
   }
 
   return error;
